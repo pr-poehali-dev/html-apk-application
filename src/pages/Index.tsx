@@ -1,15 +1,27 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import Icon from '@/components/ui/icon';
+import AuthModal from '@/components/AuthModal';
+import AdminPanel from '@/components/AdminPanel';
+import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [token, setToken] = useState<string>('');
+  const [tournaments, setTournaments] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoadingTournaments, setIsLoadingTournaments] = useState(false);
+  const { toast } = useToast();
 
   const playerStats = {
-    name: 'КИБЕР_РЫЦАРЬ',
+    name: user?.username || 'ГОСТЬ',
     rank: 'ЭЛИТА',
     rating: 2847,
     wins: 324,
@@ -17,12 +29,6 @@ const Index = () => {
     winRate: 67.5,
     kda: 3.8,
   };
-
-  const tournaments = [
-    { id: 1, name: 'Киберспортивный Чемпионат 2025', status: 'LIVE', prize: '₽3,500,000', participants: 128 },
-    { id: 2, name: 'Неоновая Лига: Финалы', status: 'UPCOMING', prize: '₽1,750,000', participants: 64 },
-    { id: 3, name: 'Цифровая Война Pro', status: 'UPCOMING', prize: '₽1,050,000', participants: 32 },
-  ];
 
   const recentMatches = [
     { id: 1, opponent: 'ТЕНЕВОЙ_ЯСТРЕБ', result: 'WIN', score: '16-12', time: '2 часа назад' },
@@ -37,12 +43,92 @@ const Index = () => {
     { id: 3, title: 'Элита Турниров', icon: 'Trophy', progress: 8, total: 10 },
   ];
 
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    const savedToken = localStorage.getItem('token');
+    if (savedUser && savedToken) {
+      setUser(JSON.parse(savedUser));
+      setToken(savedToken);
+    }
+    loadTournaments();
+  }, []);
+
+  const loadTournaments = async (search = '') => {
+    setIsLoadingTournaments(true);
+    try {
+      const url = new URL('https://functions.poehali.dev/c59fd766-60cf-4bf3-8f4b-49b277cb5f58');
+      if (search) url.searchParams.append('search', search);
+      
+      const response = await fetch(url.toString());
+      const result = await response.json();
+      
+      if (response.ok) {
+        setTournaments(result.tournaments || []);
+      }
+    } catch (error) {
+      console.error('Error loading tournaments:', error);
+    } finally {
+      setIsLoadingTournaments(false);
+    }
+  };
+
+  const handleAuthSuccess = (userData: any, userToken: string) => {
+    setUser(userData);
+    setToken(userToken);
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('token', userToken);
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setToken('');
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    toast({ title: 'Вы вышли из системы' });
+  };
+
+  const handleRegisterForTournament = async (tournamentId: number) => {
+    if (!user) {
+      setAuthModalOpen(true);
+      return;
+    }
+
+    try {
+      const response = await fetch('https://functions.poehali.dev/c59fd766-60cf-4bf3-8f4b-49b277cb5f58', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.id.toString(),
+        },
+        body: JSON.stringify({
+          action: 'register',
+          tournament_id: tournamentId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        toast({ title: 'Успешно!', description: result.message });
+        loadTournaments(searchQuery);
+      } else {
+        toast({ title: 'Ошибка', description: result.error, variant: 'destructive' });
+      }
+    } catch (error) {
+      toast({ title: 'Ошибка', description: 'Ошибка соединения', variant: 'destructive' });
+    }
+  };
+
+  const handleSearch = () => {
+    loadTournaments(searchQuery);
+  };
+
   return (
     <div className="min-h-screen bg-[hsl(var(--darker-bg))] text-foreground">
       <div className="scan-line absolute inset-0 pointer-events-none opacity-20" />
       
       <div className="relative z-10">
-        <header className="border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] backdrop-blur-lg">
+        <header className="border-b border-[hsl(var(--border))] bg-[hsl(var(--card))] backdrop-blur-lg sticky top-0 z-50">
           <div className="container mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -53,15 +139,40 @@ const Index = () => {
               </div>
               
               <div className="flex items-center gap-4">
-                <div className="pulse-glow rounded-full px-6 py-2 bg-[hsl(var(--muted))] border border-[hsl(var(--neon-cyan))]">
-                  <span className="text-sm font-medium">В СЕТИ</span>
-                </div>
+                {user ? (
+                  <>
+                    <div className="pulse-glow rounded-full px-4 py-2 bg-[hsl(var(--muted))] border border-[hsl(var(--neon-cyan))] flex items-center gap-2">
+                      <Icon name="User" size={16} />
+                      <span className="text-sm font-medium">{user.username}</span>
+                    </div>
+                    <Button
+                      onClick={handleLogout}
+                      variant="outline"
+                      className="border-[hsl(var(--neon-cyan))] text-[hsl(var(--neon-cyan))] hover:bg-[hsl(var(--neon-cyan))] hover:text-[hsl(var(--darker-bg))]"
+                    >
+                      ВЫХОД
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    onClick={() => setAuthModalOpen(true)}
+                    className="bg-gradient-to-r from-[hsl(var(--neon-cyan))] to-[hsl(var(--neon-purple))] text-[hsl(var(--darker-bg))] hover:opacity-90"
+                  >
+                    ВХОД / РЕГИСТРАЦИЯ
+                  </Button>
+                )}
               </div>
             </div>
           </div>
         </header>
 
         <main className="container mx-auto px-6 py-8">
+          {user?.is_admin && (
+            <div className="mb-8">
+              <AdminPanel userId={user.id} onTournamentCreated={() => loadTournaments(searchQuery)} />
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <Card className="neon-card p-6 col-span-1">
               <div className="flex items-center gap-4 mb-6">
@@ -186,34 +297,78 @@ const Index = () => {
             </TabsContent>
 
             <TabsContent value="tournaments" className="space-y-4">
-              {tournaments.map((tournament) => (
-                <Card key={tournament.id} className="neon-card p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-xl font-bold">{tournament.name}</h3>
-                        <Badge className={tournament.status === 'LIVE' 
-                          ? 'bg-gradient-to-r from-red-500 to-orange-500 text-white border-0 pulse-glow'
-                          : 'bg-[hsl(var(--muted))] text-[hsl(var(--neon-cyan))]'
-                        }>
-                          {tournament.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-6 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-2">
-                          <Icon name="DollarSign" size={16} className="text-[hsl(var(--neon-cyan))]" />
-                          {tournament.prize}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <Icon name="Users" size={16} className="text-[hsl(var(--neon-purple))]" />
-                          {tournament.participants} Игроков
-                        </span>
-                      </div>
-                    </div>
-                    <Icon name="ChevronRight" size={24} className="text-[hsl(var(--neon-cyan))]" />
-                  </div>
+              <Card className="neon-card p-4">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Поиск турниров..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                    className="bg-[hsl(var(--muted))] border-[hsl(var(--border))]"
+                  />
+                  <Button
+                    onClick={handleSearch}
+                    className="bg-gradient-to-r from-[hsl(var(--neon-cyan))] to-[hsl(var(--neon-purple))] text-[hsl(var(--darker-bg))]"
+                  >
+                    <Icon name="Search" size={20} />
+                  </Button>
+                </div>
+              </Card>
+
+              {isLoadingTournaments ? (
+                <Card className="neon-card p-8 text-center">
+                  <div className="text-lg">Загрузка турниров...</div>
                 </Card>
-              ))}
+              ) : tournaments.length === 0 ? (
+                <Card className="neon-card p-8 text-center">
+                  <div className="text-lg text-muted-foreground">Турниры не найдены</div>
+                </Card>
+              ) : (
+                tournaments.map((tournament) => (
+                  <Card key={tournament.id} className="neon-card p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-xl font-bold">{tournament.name}</h3>
+                          <Badge className={tournament.status === 'LIVE' 
+                            ? 'bg-gradient-to-r from-red-500 to-orange-500 text-white border-0 pulse-glow'
+                            : 'bg-[hsl(var(--muted))] text-[hsl(var(--neon-cyan))]'
+                          }>
+                            {tournament.status}
+                          </Badge>
+                        </div>
+                        {tournament.description && (
+                          <p className="text-sm text-muted-foreground">{tournament.description}</p>
+                        )}
+                        <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                          {tournament.prize_money && (
+                            <span className="flex items-center gap-2">
+                              <Icon name="DollarSign" size={16} className="text-[hsl(var(--neon-cyan))]" />
+                              {tournament.prize_money}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-2">
+                            <Icon name="Users" size={16} className="text-[hsl(var(--neon-purple))]" />
+                            {tournament.current_participants || 0} / {tournament.max_participants} Игроков
+                          </span>
+                          {tournament.game_title && (
+                            <span className="flex items-center gap-2">
+                              <Icon name="Gamepad2" size={16} className="text-[hsl(var(--neon-cyan))]" />
+                              {tournament.game_title}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => handleRegisterForTournament(tournament.id)}
+                        className="bg-gradient-to-r from-[hsl(var(--neon-cyan))] to-[hsl(var(--neon-purple))] text-[hsl(var(--darker-bg))] hover:opacity-90"
+                      >
+                        УЧАСТВОВАТЬ
+                      </Button>
+                    </div>
+                  </Card>
+                ))
+              )}
             </TabsContent>
 
             <TabsContent value="matches" className="space-y-4">
@@ -256,6 +411,12 @@ const Index = () => {
           </div>
         </footer>
       </div>
+
+      <AuthModal
+        open={authModalOpen}
+        onOpenChange={setAuthModalOpen}
+        onAuthSuccess={handleAuthSuccess}
+      />
     </div>
   );
 };
